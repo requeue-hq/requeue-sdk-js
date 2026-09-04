@@ -1,0 +1,60 @@
+{
+  "name": "@requeue-hq/sdk",
+  "version": "0.1.0",
+  "description": "Official TypeScript/JavaScript SDK for Requeue — catch failed webhooks & jobs, then replay them.",
+  "license": "MIT",
+  "type": "module",
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.js"
+      },
+      "require": {
+        "types": "./dist/index.d.cts",
+        "default": "./dist/index.cjs"
+      }
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "sideEffects": false,
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "tsup",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit",
+    "prepublishOnly": "npm run typecheck && npm test && npm run build"
+  },
+  "keywords": [
+    "requeue",
+    "dead-letter",
+    "webhooks",
+    "replay",
+    "sdk"
+  ],
+  "author": "requeue-hq",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/requeue-hq/requeue-sdk-js.git"
+  },
+  "bugs": {
+    "url": "https://github.com/requeue-hq/requeue-sdk-js/issues"
+  },
+  "homepage": "https://github.com/requeue-hq/requeue-sdk-js#readme",
+  "publishConfig": {
+    "access": "public"
+  },
+  "devDependencies": {
+    "tsup": "^8.5.0",
+    "typescript": "5.9.2",
+    "vitest": "4.1.11"
+  }
+}
