@@ -114,8 +114,8 @@ export class Requeue {
     options: {
       method: string;
       auth: boolean;
-      body?: Record<string, unknown>;
-      query?: Record<string, string | number | undefined>;
+      body?: Record<string, unknown> | undefined;
+      query?: Record<string, string | number | undefined> | undefined;
     },
   ): Promise<T> {
     const url = new URL(path, `${this.baseUrl}/`);
