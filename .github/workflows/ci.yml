@@ -15,7 +15,7 @@ permissions:
 jobs:
   ci:
     name: Typecheck, test, build
-    runs-on: ubuntu-latest
+    runs-on: latchkey-small
     timeout-minutes: 10
     steps:
       - name: Checkout
@@ -27,9 +27,23 @@ jobs:
           node-version: 20
           cache: npm
 
+      - name: Restore npm cache (Latchkey)
+        uses: latchkey-dev/cache-action@v1
+        id: latchkey-cache-npm
+        with:
+          action: restore
+          key: npm-${{ hashFiles('**/package-lock.json') }}
+          path: ~/.npm
       - name: Install dependencies
         run: npm ci
 
+      - name: Save npm cache (Latchkey)
+        uses: latchkey-dev/cache-action@v1
+        if: steps.latchkey-cache-npm.outputs.cache-hit != 'true'
+        with:
+          action: save
+          key: npm-${{ hashFiles('**/package-lock.json') }}
+          path: ~/.npm
       - name: Typecheck
         run: npm run typecheck
 
