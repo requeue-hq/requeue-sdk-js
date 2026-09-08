@@ -96,13 +96,14 @@ export class Requeue {
     });
   }
 
-  /** GET /v1/events — list events, optionally filtered by status. */
+  /** GET /v1/events — list events, optionally filtered by status and endpoint. */
   listEvents(params: ListEventsParams = {}): Promise<ListEventsResponse> {
     return this.request<ListEventsResponse>("/v1/events", {
       method: "GET",
       auth: true,
       query: {
         status: params.status,
+        endpoint_id: params.endpoint_id,
         limit: params.limit,
       },
     });

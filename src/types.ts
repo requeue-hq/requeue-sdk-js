@@ -70,6 +70,8 @@ export type ReplayAttempt = {
 
 export type ListEventsParams = {
   status?: EventStatus;
+  /** Limit the list to one destination (`GET /v1/events?endpoint_id=`). */
+  endpoint_id?: string;
   /** Page size. Core API clamps to 1–200 and defaults to 50. */
   limit?: number;
 };
