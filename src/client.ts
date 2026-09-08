@@ -4,9 +4,11 @@ import type {
   CreateEndpointParams,
   CreateEndpointResponse,
   FetchLike,
+  GetEndpointResponse,
   GetEventResponse,
   IngestParams,
   IngestResponse,
+  ListEndpointsResponse,
   ListEventsParams,
   ListEventsResponse,
   ReplayParams,
@@ -54,6 +56,25 @@ export class Requeue {
         secret: params.secret,
       },
     });
+  }
+
+  /** GET /v1/endpoints — list project endpoints (no raw secret). */
+  listEndpoints(): Promise<ListEndpointsResponse> {
+    return this.request<ListEndpointsResponse>("/v1/endpoints", {
+      method: "GET",
+      auth: true,
+    });
+  }
+
+  /** GET /v1/endpoints/:id — fetch one project endpoint. */
+  getEndpoint(id: string): Promise<GetEndpointResponse> {
+    return this.request<GetEndpointResponse>(
+      `/v1/endpoints/${encodeURIComponent(requireId(id, "id"))}`,
+      {
+        method: "GET",
+        auth: true,
+      },
+    );
   }
 
   /**

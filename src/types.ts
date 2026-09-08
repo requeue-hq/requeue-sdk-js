@@ -86,6 +86,15 @@ export type CreateEndpointResponse = {
   endpoint: Endpoint;
 };
 
+export type ListEndpointsResponse = {
+  endpoints: Endpoint[];
+  count: number;
+};
+
+export type GetEndpointResponse = {
+  endpoint: Endpoint;
+};
+
 export type IngestResponse = {
   event: RequeueEvent;
 };
