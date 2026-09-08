@@ -16,7 +16,7 @@ Requires Node.js 20+ (native `fetch`). Works in browsers and other runtimes that
 
 ## Usage
 
-Point the client at a Requeue worker. Local Wrangler (from the [core repo](https://github.com/requeue-hq/requeue)) listens on `http://127.0.0.1:8787`. The first core migration seeds this **local/demo** key — do not use it in production:
+Point the client at a Requeue worker. Local Wrangler (from the [core repo](https://github.com/requeue-hq/requeue)) listens on `http://127.0.0.1:8787`. The hosted API is `https://api.getrequeue.com`. The first core migration seeds this **local/demo** key — do not use it on hosted / production:
 
 ```
 rq_demo_local_dev_only_do_not_use_in_prod
@@ -28,10 +28,11 @@ import { Requeue, RequeueError } from "@requeue-hq/sdk";
 const requeue = new Requeue({
   apiKey: process.env.REQUEUE_API_KEY ?? "rq_demo_local_dev_only_do_not_use_in_prod",
   baseUrl: process.env.REQUEUE_BASE_URL ?? "http://127.0.0.1:8787",
+  // Hosted: "https://api.getrequeue.com"
 });
 ```
 
-The examples below match the core API curl happy path.
+Ask [maya@getrequeue.com](mailto:maya@getrequeue.com) for a hosted key. The examples below match the core API curl happy path.
 
 ### Create an endpoint
 
@@ -57,6 +58,16 @@ const { endpoint } = await requeue.createEndpoint({
 
 // Use endpoint.endpoint_key for ingest.
 ```
+
+### List and fetch endpoints
+
+```ts
+const { endpoints, count } = await requeue.listEndpoints();
+
+const { endpoint: fetched } = await requeue.getEndpoint(endpoint.id);
+```
+
+`GET /v1/endpoints` is project-scoped. Responses include `endpoint_key` and `has_secret`, never the HMAC `secret`.
 
 ### Report a failure
 
@@ -122,6 +133,8 @@ new Requeue({
 | Method | HTTP | Auth |
 | --- | --- | --- |
 | `createEndpoint({ name?, target_url, secret? })` | `POST /v1/endpoints` | Bearer |
+| `listEndpoints()` | `GET /v1/endpoints` | Bearer |
+| `getEndpoint(id)` | `GET /v1/endpoints/:id` | Bearer |
 | `ingest(endpointKey, { payload, reason?, source?, headers? })` | `POST /v1/ingest/:endpointKey` | endpoint key |
 | `listEvents({ status?, limit? })` | `GET /v1/events` | Bearer |
 | `getEvent(id)` | `GET /v1/events/:id` | Bearer |

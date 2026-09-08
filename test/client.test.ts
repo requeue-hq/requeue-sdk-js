@@ -1,6 +1,12 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { Requeue, RequeueError, isRequeueError } from "../src/index.js";
-import type { Endpoint, ReplayAttempt, RequeueEvent } from "../src/index.js";
+import type {
+  Endpoint,
+  GetEndpointResponse,
+  ListEndpointsResponse,
+  ReplayAttempt,
+  RequeueEvent,
+} from "../src/index.js";
 
 const API_KEY = "rq_demo_local_dev_only_do_not_use_in_prod";
 const BASE_URL = "https://requeue.test";
@@ -117,6 +123,45 @@ describe("createEndpoint", () => {
   it("rejects a missing target_url", () => {
     const client = createClient(vi.fn());
     expect(() => client.createEndpoint({ target_url: "" })).toThrowError(/target_url/);
+  });
+});
+
+describe("listEndpoints", () => {
+  it("GETs /v1/endpoints with a bearer token", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(jsonResponse(200, { endpoints: [endpoint], count: 1 }));
+    const client = createClient(fetchMock);
+
+    const result: ListEndpointsResponse = await client.listEndpoints();
+
+    expect(result.count).toBe(1);
+    expect(result.endpoints[0]?.endpoint_key).toBe("epk_abc");
+    const { url, init, headers } = lastCall(fetchMock);
+    expect(url).toBe("https://requeue.test/v1/endpoints");
+    expect(init.method).toBe("GET");
+    expect(headers.get("Authorization")).toBe(`Bearer ${API_KEY}`);
+    expect(init.body).toBeUndefined();
+  });
+});
+
+describe("getEndpoint", () => {
+  it("GETs /v1/endpoints/:id", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse(200, { endpoint }));
+    const client = createClient(fetchMock);
+
+    const result: GetEndpointResponse = await client.getEndpoint("ep_123");
+
+    expect(result.endpoint.id).toBe("ep_123");
+    const { url, init, headers } = lastCall(fetchMock);
+    expect(url).toBe("https://requeue.test/v1/endpoints/ep_123");
+    expect(init.method).toBe("GET");
+    expect(headers.get("Authorization")).toBe(`Bearer ${API_KEY}`);
+  });
+
+  it("rejects a missing id", () => {
+    const client = createClient(vi.fn());
+    expect(() => client.getEndpoint("   ")).toThrowError(/id is required/);
   });
 });
 
