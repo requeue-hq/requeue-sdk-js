@@ -95,7 +95,7 @@ Ingest does **not** send the management API key. Replay later POSTs the stored `
 ### List, fetch, and replay
 
 ```bash
-curl -sS "http://127.0.0.1:8787/v1/events?status=failed" \
+curl -sS "http://127.0.0.1:8787/v1/events?status=failed&endpoint_id=ep_REPLACE_ME" \
   -H "Authorization: Bearer rq_demo_local_dev_only_do_not_use_in_prod"
 
 curl -sS http://127.0.0.1:8787/v1/events/evt_REPLACE_ME \
@@ -106,7 +106,11 @@ curl -sS -X POST http://127.0.0.1:8787/v1/events/evt_REPLACE_ME/replay \
 ```
 
 ```ts
-const { events } = await requeue.listEvents({ status: "failed", limit: 50 });
+const { events } = await requeue.listEvents({
+  status: "failed",
+  endpoint_id: endpoint.id,
+  limit: 50,
+});
 
 const detail = await requeue.getEvent(event.id);
 // detail.event, detail.replay_attempts
@@ -118,7 +122,7 @@ const replayed = await requeue.replay(event.id);
 await requeue.replay(event.id, { enqueue: true });
 ```
 
-Event statuses: `failed`, `pending_replay`, `replayed`, `replay_failed`.
+Event statuses: `failed`, `pending_replay`, `replayed`, `replay_failed`. Optional `endpoint_id` limits the list to one destination.
 
 ## Client
 
@@ -136,7 +140,7 @@ new Requeue({
 | `listEndpoints()` | `GET /v1/endpoints` | Bearer |
 | `getEndpoint(id)` | `GET /v1/endpoints/:id` | Bearer |
 | `ingest(endpointKey, { payload, reason?, source?, headers? })` | `POST /v1/ingest/:endpointKey` | endpoint key |
-| `listEvents({ status?, limit? })` | `GET /v1/events` | Bearer |
+| `listEvents({ status?, endpoint_id?, limit? })` | `GET /v1/events` | Bearer |
 | `getEvent(id)` | `GET /v1/events/:id` | Bearer |
 | `replay(id, { enqueue? })` | `POST /v1/events/:id/replay` | Bearer |
 

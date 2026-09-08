@@ -206,6 +206,24 @@ describe("listEvents", () => {
     expect(headers.get("Authorization")).toBe(`Bearer ${API_KEY}`);
   });
 
+  it("sends optional endpoint_id", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(jsonResponse(200, { events: [event], count: 1 }));
+    const client = createClient(fetchMock);
+
+    const result = await client.listEvents({
+      status: "failed",
+      endpoint_id: "ep_123",
+      limit: 20,
+    });
+
+    expect(result.events[0]?.endpoint_id).toBe("ep_123");
+    expect(lastCall(fetchMock).url).toBe(
+      "https://requeue.test/v1/events?status=failed&endpoint_id=ep_123&limit=20",
+    );
+  });
+
   it("omits empty query params", async () => {
     const fetchMock = vi.fn().mockResolvedValue(jsonResponse(200, { events: [], count: 0 }));
     const client = createClient(fetchMock);
