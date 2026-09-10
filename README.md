@@ -124,6 +124,49 @@ await requeue.replay(event.id, { enqueue: true });
 
 Event statuses: `failed`, `pending_replay`, `replayed`, `replay_failed`. Optional `endpoint_id` limits the list to one destination.
 
+### Verify a replay signature
+
+When the endpoint has a `secret`, the Worker POSTs the **stored payload** (not the ingest envelope) to `target_url` and signs it. Headers (see [`src/replay.ts`](https://github.com/requeue-hq/requeue/blob/main/src/replay.ts) in core):
+
+| Header | Value |
+| --- | --- |
+| `X-Requeue-Event-Id` | Event id |
+| `X-Requeue-Timestamp` | Unix time in **seconds** |
+| `X-Requeue-Signature` | `sha256=<hex>` |
+| `X-Requeue-Endpoint-Id` | Endpoint id (always sent; **not** part of the HMAC) |
+
+HMAC-SHA256 is computed over this canonical string — `{timestamp}.{eventId}.{payload}` — where `payload` is the **raw request body** (the stored payload string). Do not `JSON.stringify` a parsed object and expect the signature to match.
+
+```ts
+import { verifyReplaySignature } from "@requeue-hq/sdk";
+
+const result = await verifyReplaySignature({
+  secret: process.env.REQUEUE_ENDPOINT_SECRET!,
+  headers: request.headers,
+  payload: rawBody,
+});
+
+if (!result.ok) {
+  // result.reason: missing_signature | invalid_signature | timestamp_expired | …
+}
+```
+
+Timestamps older or newer than 5 minutes (`DEFAULT_REPLAY_TOLERANCE_SECONDS`) are rejected. Pass `tolerance: false` to skip the freshness check. `verifyRequeueSignature` is an alias. Uses Web Crypto (`crypto.subtle`) in Node 20+ and browsers.
+
+## Examples
+
+Scripts in [`examples/`](examples/) that run against local Wrangler (`http://127.0.0.1:8787`). Use the documented local demo key as a placeholder only — never a production key.
+
+| File | What it shows |
+| --- | --- |
+| [`examples/catch-and-ingest.ts`](examples/catch-and-ingest.ts) | `try/catch` around work, then `requeue.ingest` |
+| [`examples/verify-replay.ts`](examples/verify-replay.ts) | HTTP handler that verifies the replay HMAC before processing |
+
+```bash
+npx tsx examples/catch-and-ingest.ts
+REQUEUE_ENDPOINT_SECRET=optional-hmac-secret npx tsx examples/verify-replay.ts
+```
+
 ## Client
 
 ```ts
@@ -143,6 +186,8 @@ new Requeue({
 | `listEvents({ status?, endpoint_id?, limit? })` | `GET /v1/events` | Bearer |
 | `getEvent(id)` | `GET /v1/events/:id` | Bearer |
 | `replay(id, { enqueue? })` | `POST /v1/events/:id/replay` | Bearer |
+
+`verifyReplaySignature({ secret, headers, payload, tolerance? })` is a local helper (no HTTP). See [Verify a replay signature](#verify-a-replay-signature).
 
 ## Errors
 
