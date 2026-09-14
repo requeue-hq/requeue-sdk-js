@@ -14,6 +14,7 @@ export type {
   ApiErrorBody,
   CreateEndpointParams,
   CreateEndpointResponse,
+  DeleteEndpointResponse,
   Endpoint,
   EventStatus,
   FetchLike,
@@ -29,6 +30,8 @@ export type {
   ReplayResponse,
   RequeueClientOptions,
   RequeueEvent,
+  UpdateEndpointParams,
+  UpdateEndpointResponse,
 } from "./types.js";
 export type {
   ReplayHeadersInput,

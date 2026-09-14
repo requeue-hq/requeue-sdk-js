@@ -3,6 +3,7 @@ import type {
   ApiErrorBody,
   CreateEndpointParams,
   CreateEndpointResponse,
+  DeleteEndpointResponse,
   FetchLike,
   GetEndpointResponse,
   GetEventResponse,
@@ -14,6 +15,8 @@ import type {
   ReplayParams,
   ReplayResponse,
   RequeueClientOptions,
+  UpdateEndpointParams,
+  UpdateEndpointResponse,
 } from "./types.js";
 
 const DEFAULT_BASE_URL = "http://127.0.0.1:8787";
@@ -75,6 +78,41 @@ export class Requeue {
         auth: true,
       },
     );
+  }
+
+  /**
+   * PATCH /v1/endpoints/:id — partial update of name, target_url, and/or secret.
+   * `secret: ""` or `secret: null` clears HMAC. `endpoint_key` / ingest path stay put.
+   */
+  updateEndpoint(id: string, params: UpdateEndpointParams = {}): Promise<UpdateEndpointResponse> {
+    return this.request<UpdateEndpointResponse>(
+      `/v1/endpoints/${encodeURIComponent(requireId(id, "id"))}`,
+      {
+        method: "PATCH",
+        auth: true,
+        body: {
+          name: params.name,
+          target_url: params.target_url,
+          secret: params.secret,
+        },
+      },
+    );
+  }
+
+  /**
+   * DELETE /v1/endpoints/:id — soft-delete (`deleted_at`).
+   * Core returns `{ deleted: true, id }`. An empty / 204 body is treated as that shape.
+   * List/get omit the row. Later ingest for the old key returns `410` / `endpoint_gone`.
+   */
+  deleteEndpoint(id: string): Promise<DeleteEndpointResponse> {
+    const endpointId = requireId(id, "id");
+    return this.request<DeleteEndpointResponse | undefined>(
+      `/v1/endpoints/${encodeURIComponent(endpointId)}`,
+      {
+        method: "DELETE",
+        auth: true,
+      },
+    ).then((body) => body ?? { deleted: true, id: endpointId });
   }
 
   /**

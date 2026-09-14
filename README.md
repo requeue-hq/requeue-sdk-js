@@ -59,15 +59,27 @@ const { endpoint } = await requeue.createEndpoint({
 // Use endpoint.endpoint_key for ingest.
 ```
 
-### List and fetch endpoints
+### List, update, and retire endpoints
 
 ```ts
 const { endpoints, count } = await requeue.listEndpoints();
 
 const { endpoint: fetched } = await requeue.getEndpoint(endpoint.id);
+
+const { endpoint: updated } = await requeue.updateEndpoint(endpoint.id, {
+  name: "Orders worker v2",
+  target_url: "https://httpbin.org/post",
+});
+
+// secret: "" or null clears HMAC. endpoint_key / ingest_path do not rotate.
+await requeue.updateEndpoint(endpoint.id, { secret: null });
+
+const { deleted, id } = await requeue.deleteEndpoint(endpoint.id);
 ```
 
 `GET /v1/endpoints` is project-scoped. Responses include `endpoint_key` and `has_secret`, never the HMAC `secret`.
+
+`updateEndpoint` is a partial `PATCH`. Omitted fields stay as-is. `deleteEndpoint` is a soft-delete (`deleted_at`); core returns `{ deleted: true, id }`. List/get hide the row. Later ingest for that key returns `410` with `error.code: "endpoint_gone"`. Historical events stay.
 
 ### Report a failure
 
@@ -182,6 +194,8 @@ new Requeue({
 | `createEndpoint({ name?, target_url, secret? })` | `POST /v1/endpoints` | Bearer |
 | `listEndpoints()` | `GET /v1/endpoints` | Bearer |
 | `getEndpoint(id)` | `GET /v1/endpoints/:id` | Bearer |
+| `updateEndpoint(id, { name?, target_url?, secret? })` | `PATCH /v1/endpoints/:id` | Bearer |
+| `deleteEndpoint(id)` | `DELETE /v1/endpoints/:id` | Bearer |
 | `ingest(endpointKey, { payload, reason?, source?, headers? })` | `POST /v1/ingest/:endpointKey` | endpoint key |
 | `listEvents({ status?, endpoint_id?, limit? })` | `GET /v1/events` | Bearer |
 | `getEvent(id)` | `GET /v1/events/:id` | Bearer |
@@ -207,6 +221,7 @@ try {
 | --- | --- |
 | `invalid_options` | Missing `apiKey`, `target_url`, or id |
 | `network_error` | `fetch` threw before an HTTP response |
+| `endpoint_gone` | Ingest after `deleteEndpoint` (HTTP 410) |
 | API codes (`unauthorized`, `not_found`, …) | Non-2xx from the worker |
 
 ## Scripts

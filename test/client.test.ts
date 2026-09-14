@@ -1,11 +1,13 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { Requeue, RequeueError, isRequeueError } from "../src/index.js";
 import type {
+  DeleteEndpointResponse,
   Endpoint,
   GetEndpointResponse,
   ListEndpointsResponse,
   ReplayAttempt,
   RequeueEvent,
+  UpdateEndpointResponse,
 } from "../src/index.js";
 
 const API_KEY = "rq_demo_local_dev_only_do_not_use_in_prod";
@@ -162,6 +164,100 @@ describe("getEndpoint", () => {
   it("rejects a missing id", () => {
     const client = createClient(vi.fn());
     expect(() => client.getEndpoint("   ")).toThrowError(/id is required/);
+  });
+});
+
+describe("updateEndpoint", () => {
+  it("PATCHes /v1/endpoints/:id and returns the get/create shape", async () => {
+    const updated = { ...endpoint, name: "Orders worker v2" };
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse(200, { endpoint: updated }));
+    const client = createClient(fetchMock);
+
+    const result: UpdateEndpointResponse = await client.updateEndpoint("ep_123", {
+      name: "Orders worker v2",
+      target_url: "https://httpbin.org/post",
+      secret: "rotated-hmac-secret",
+    });
+
+    expect(result.endpoint.name).toBe("Orders worker v2");
+    expect(result.endpoint.endpoint_key).toBe("epk_abc");
+    const { url, init, headers } = lastCall(fetchMock);
+    expect(url).toBe("https://requeue.test/v1/endpoints/ep_123");
+    expect(init.method).toBe("PATCH");
+    expect(headers.get("Authorization")).toBe(`Bearer ${API_KEY}`);
+    expect(headers.get("Content-Type")).toBe("application/json");
+    expect(JSON.parse(String(init.body))).toEqual({
+      name: "Orders worker v2",
+      target_url: "https://httpbin.org/post",
+      secret: "rotated-hmac-secret",
+    });
+  });
+
+  it("sends only the fields provided on a partial update", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse(200, { endpoint }));
+    const client = createClient(fetchMock);
+
+    await client.updateEndpoint("ep_123", { name: "Renamed" });
+
+    expect(JSON.parse(String(lastCall(fetchMock).init.body))).toEqual({ name: "Renamed" });
+  });
+
+  it("sends secret: null to clear HMAC", async () => {
+    const cleared = { ...endpoint, has_secret: false };
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse(200, { endpoint: cleared }));
+    const client = createClient(fetchMock);
+
+    const result = await client.updateEndpoint("ep_123", { secret: null });
+
+    expect(result.endpoint.has_secret).toBe(false);
+    expect(JSON.parse(String(lastCall(fetchMock).init.body))).toEqual({ secret: null });
+  });
+
+  it("sends secret: \"\" to clear HMAC", async () => {
+    const cleared = { ...endpoint, has_secret: false };
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse(200, { endpoint: cleared }));
+    const client = createClient(fetchMock);
+
+    await client.updateEndpoint("ep_123", { secret: "" });
+
+    expect(JSON.parse(String(lastCall(fetchMock).init.body))).toEqual({ secret: "" });
+  });
+
+  it("rejects a missing id", () => {
+    const client = createClient(vi.fn());
+    expect(() => client.updateEndpoint("   ", { name: "Nope" })).toThrowError(/id is required/);
+  });
+});
+
+describe("deleteEndpoint", () => {
+  it("DELETEs /v1/endpoints/:id and returns { deleted, id }", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse(200, { deleted: true, id: "ep_123" }));
+    const client = createClient(fetchMock);
+
+    const result: DeleteEndpointResponse = await client.deleteEndpoint("ep_123");
+
+    expect(result).toEqual({ deleted: true, id: "ep_123" });
+    const { url, init, headers } = lastCall(fetchMock);
+    expect(url).toBe("https://requeue.test/v1/endpoints/ep_123");
+    expect(init.method).toBe("DELETE");
+    expect(headers.get("Authorization")).toBe(`Bearer ${API_KEY}`);
+    expect(init.body).toBeUndefined();
+    expect(headers.get("Content-Type")).toBeNull();
+  });
+
+  it("treats an empty 204 body as { deleted: true, id }", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(null, { status: 204 }));
+    const client = createClient(fetchMock);
+
+    const result = await client.deleteEndpoint("ep_123");
+
+    expect(result).toEqual({ deleted: true, id: "ep_123" });
+    expect(lastCall(fetchMock).init.method).toBe("DELETE");
+  });
+
+  it("rejects a missing id", () => {
+    const client = createClient(vi.fn());
+    expect(() => client.deleteEndpoint("   ")).toThrowError(/id is required/);
   });
 });
 
@@ -324,6 +420,22 @@ describe("error handling", () => {
       status: 502,
       code: "http_error",
       message: "Request failed with status 502",
+    });
+  });
+
+  it("maps 410 endpoint_gone after a soft-delete", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      jsonResponse(410, {
+        error: { code: "endpoint_gone", message: "Endpoint has been deleted" },
+      }),
+    );
+    const client = createClient(fetchMock);
+
+    await expect(client.ingest("epk_abc", { payload: { order_id: "ord_123" } })).rejects.toMatchObject({
+      name: "RequeueError",
+      status: 410,
+      code: "endpoint_gone",
+      message: "Endpoint has been deleted",
     });
   });
 });
