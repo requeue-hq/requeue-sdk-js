@@ -25,6 +25,14 @@ export type CreateEndpointParams = {
   secret?: string;
 };
 
+/** Partial PATCH body. Omitted fields stay as-is. `secret: ""` or `null` clears HMAC. */
+export type UpdateEndpointParams = {
+  name?: string;
+  target_url?: string;
+  /** New HMAC secret, or `""` / `null` to clear it. */
+  secret?: string | null;
+};
+
 export type Endpoint = {
   id: string;
   project_id: string;
@@ -95,6 +103,16 @@ export type ListEndpointsResponse = {
 
 export type GetEndpointResponse = {
   endpoint: Endpoint;
+};
+
+export type UpdateEndpointResponse = {
+  endpoint: Endpoint;
+};
+
+/** Soft-delete result from `DELETE /v1/endpoints/:id`. */
+export type DeleteEndpointResponse = {
+  deleted: true;
+  id: string;
 };
 
 export type IngestResponse = {
