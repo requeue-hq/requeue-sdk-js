@@ -160,10 +160,10 @@ export class Requeue {
    */
   replay(id: string, params: ReplayParams = {}): Promise<ReplayResponse> {
     const body: Record<string, unknown> = {};
-        if (params.enqueue === true) body.enqueue = true;
-        if (params.payload !== undefined) body.payload = params.payload;
-        if (params.headers !== undefined) body.headers = params.headers;
-        return this.request<ReplayResponse>
+    if (params.enqueue === true) body.enqueue = true;
+    if (params.payload !== undefined) body.payload = params.payload;
+    if (params.headers !== undefined) body.headers = params.headers;
+      return this.request<ReplayResponse>(
       `/v1/events/${encodeURIComponent(requireId(id, "id"))}/replay`,
       {
         method: "POST",
