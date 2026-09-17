@@ -159,12 +159,16 @@ export class Requeue {
    * POST /v1/events/:id/replay — deliver now, or enqueue for the outbox cron.
    */
   replay(id: string, params: ReplayParams = {}): Promise<ReplayResponse> {
-    return this.request<ReplayResponse>(
+    const body: Record<string, unknown> = {};
+        if (params.enqueue === true) body.enqueue = true;
+        if (params.payload !== undefined) body.payload = params.payload;
+        if (params.headers !== undefined) body.headers = params.headers;
+        return this.request<ReplayResponse>
       `/v1/events/${encodeURIComponent(requireId(id, "id"))}/replay`,
       {
         method: "POST",
         auth: true,
-        body: params.enqueue === true ? { enqueue: true } : undefined,
+        body: Object.keys(body).length > 0 ? body : undefined,
       },
     );
   }
