@@ -81,6 +81,21 @@ const { deleted, id } = await requeue.deleteEndpoint(endpoint.id);
 
 `updateEndpoint` is a partial `PATCH`. Omitted fields stay as-is. `deleteEndpoint` is a soft-delete (`deleted_at`); core returns `{ deleted: true, id }`. List/get hide the row. Later ingest for that key returns `410` with `error.code: "endpoint_gone"`. Historical events stay.
 
+### Manage API keys
+
+List, mint, and revoke management keys for the current project. These use the same Bearer token as other management routes.
+
+```ts
+const { api_keys, count } = await requeue.listApiKeys();
+
+const { api_key } = await requeue.createApiKey({ name: "CI key" });
+// api_key.token is the raw secret — store it now. List never returns it.
+
+const { deleted, id } = await requeue.revokeApiKey(api_key.id);
+```
+
+`listApiKeys` returns id, name, and `key_prefix` only — never the token or hash. `revokeApiKey` maps to `DELETE /v1/api-keys/:id` and returns `{ deleted: true, id }`. The first hosted key is minted with a bootstrap secret on the Worker, not these methods.
+
 ### Report a failure
 
 ```bash
@@ -196,6 +211,9 @@ new Requeue({
 | `getEndpoint(id)` | `GET /v1/endpoints/:id` | Bearer |
 | `updateEndpoint(id, { name?, target_url?, secret? })` | `PATCH /v1/endpoints/:id` | Bearer |
 | `deleteEndpoint(id)` | `DELETE /v1/endpoints/:id` | Bearer |
+| `listApiKeys()` | `GET /v1/api-keys` | Bearer |
+| `createApiKey({ name })` | `POST /v1/api-keys` | Bearer |
+| `revokeApiKey(id)` | `DELETE /v1/api-keys/:id` | Bearer |
 | `ingest(endpointKey, { payload, reason?, source?, headers? })` | `POST /v1/ingest/:endpointKey` | endpoint key |
 | `listEvents({ status?, endpoint_id?, limit? })` | `GET /v1/events` | Bearer |
 | `getEvent(id)` | `GET /v1/events/:id` | Bearer |
@@ -219,7 +237,7 @@ try {
 
 | `code` | When |
 | --- | --- |
-| `invalid_options` | Missing `apiKey`, `target_url`, or id |
+| `invalid_options` | Missing `apiKey`, `target_url`, `name`, or id |
 | `network_error` | `fetch` threw before an HTTP response |
 | `endpoint_gone` | Ingest after `deleteEndpoint` (HTTP 410) |
 | API codes (`unauthorized`, `not_found`, …) | Non-2xx from the worker |

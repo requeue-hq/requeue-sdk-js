@@ -1,12 +1,16 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { Requeue, RequeueError, isRequeueError } from "../src/index.js";
 import type {
+  ApiKey,
+  CreatedApiKey,
   DeleteEndpointResponse,
   Endpoint,
   GetEndpointResponse,
+  ListApiKeysResponse,
   ListEndpointsResponse,
   ReplayAttempt,
   RequeueEvent,
+  RevokeApiKeyResponse,
   UpdateEndpointResponse,
 } from "../src/index.js";
 
@@ -45,6 +49,19 @@ const attempt: ReplayAttempt = {
   status_code: 200,
   response_body: "{\"accepted\":true}",
   error: null,
+};
+
+const apiKey: ApiKey = {
+  id: "key_123",
+  project_id: "proj_1",
+  name: "CI key",
+  key_prefix: "rq_abc1234",
+  created_at: "2026-09-04T00:00:00.000Z",
+};
+
+const createdApiKey: CreatedApiKey = {
+  ...apiKey,
+  token: "rq_abc1234ffffffffffffffff",
 };
 
 afterEach(() => {
@@ -258,6 +275,81 @@ describe("deleteEndpoint", () => {
   it("rejects a missing id", () => {
     const client = createClient(vi.fn());
     expect(() => client.deleteEndpoint("   ")).toThrowError(/id is required/);
+  });
+});
+
+describe("listApiKeys", () => {
+  it("GETs /v1/api-keys with a bearer token", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(jsonResponse(200, { api_keys: [apiKey], count: 1 }));
+    const client = createClient(fetchMock);
+
+    const result: ListApiKeysResponse = await client.listApiKeys();
+
+    expect(result.count).toBe(1);
+    expect(result.api_keys[0]?.id).toBe("key_123");
+    expect(result.api_keys[0]).not.toHaveProperty("token");
+    const { url, init, headers } = lastCall(fetchMock);
+    expect(url).toBe("https://requeue.test/v1/api-keys");
+    expect(init.method).toBe("GET");
+    expect(headers.get("Authorization")).toBe(`Bearer ${API_KEY}`);
+    expect(init.body).toBeUndefined();
+  });
+});
+
+describe("createApiKey", () => {
+  it("POSTs /v1/api-keys with a bearer token and returns the raw token once", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse(201, { api_key: createdApiKey }));
+    const client = createClient(fetchMock);
+
+    const result = await client.createApiKey({ name: "CI key" });
+
+    expect(result.api_key.token).toBe("rq_abc1234ffffffffffffffff");
+    expect(result.api_key.key_prefix).toBe("rq_abc1234");
+    const { url, init, headers } = lastCall(fetchMock);
+    expect(url).toBe("https://requeue.test/v1/api-keys");
+    expect(init.method).toBe("POST");
+    expect(headers.get("Authorization")).toBe(`Bearer ${API_KEY}`);
+    expect(headers.get("Content-Type")).toBe("application/json");
+    expect(JSON.parse(String(init.body))).toEqual({ name: "CI key" });
+  });
+
+  it("rejects a missing name", () => {
+    const client = createClient(vi.fn());
+    expect(() => client.createApiKey({ name: "   " })).toThrowError(/name is required/);
+  });
+});
+
+describe("revokeApiKey", () => {
+  it("DELETEs /v1/api-keys/:id and returns { deleted, id }", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse(200, { deleted: true, id: "key_123" }));
+    const client = createClient(fetchMock);
+
+    const result: RevokeApiKeyResponse = await client.revokeApiKey("key_123");
+
+    expect(result).toEqual({ deleted: true, id: "key_123" });
+    const { url, init, headers } = lastCall(fetchMock);
+    expect(url).toBe("https://requeue.test/v1/api-keys/key_123");
+    expect(init.method).toBe("DELETE");
+    expect(headers.get("Authorization")).toBe(`Bearer ${API_KEY}`);
+    expect(init.body).toBeUndefined();
+    expect(headers.get("Content-Type")).toBeNull();
+  });
+
+  it("treats an empty 204 body as { deleted: true, id }", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(null, { status: 204 }));
+    const client = createClient(fetchMock);
+
+    const result = await client.revokeApiKey("key_123");
+
+    expect(result).toEqual({ deleted: true, id: "key_123" });
+    expect(lastCall(fetchMock).init.method).toBe("DELETE");
+  });
+
+  it("rejects a missing id", () => {
+    const client = createClient(vi.fn());
+    expect(() => client.revokeApiKey("   ")).toThrowError(/id is required/);
   });
 });
 
