@@ -109,4 +109,27 @@ export type IngestResponse = { event: RequeueEvent };
 export type ListEventsResponse = { events: RequeueEvent[]; count: number };
 export type GetEventResponse = { event: RequeueEvent; replay_attempts: ReplayAttempt[] };
 export type ReplayResponse = { event: RequeueEvent; attempt?: ReplayAttempt; queued: boolean };
+
+/** Public API key metadata. List/get never include the raw token or hash. */
+export type ApiKey = {
+  id: string;
+  project_id: string;
+  name: string;
+  key_prefix: string;
+  created_at: string;
+};
+
+export type CreateApiKeyParams = {
+  /** Human-readable label. Required by the SDK; core would default to "Management key". */
+  name: string;
+};
+
+/** Minted key. `token` is the raw secret and is returned **once**. Store it; later list calls omit it. */
+export type CreatedApiKey = ApiKey & { token: string };
+
+export type CreateApiKeyResponse = { api_key: CreatedApiKey };
+export type ListApiKeysResponse = { api_keys: ApiKey[]; count: number };
+/** Revoke result from `DELETE /v1/api-keys/:id`. */
+export type RevokeApiKeyResponse = { deleted: true; id: string };
+
 export type ApiErrorBody = { error: { code: string; message: string } };

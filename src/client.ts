@@ -1,6 +1,8 @@
 import { RequeueError } from "./errors.js";
 import type {
   ApiErrorBody,
+  CreateApiKeyParams,
+  CreateApiKeyResponse,
   CreateEndpointParams,
   CreateEndpointResponse,
   DeleteEndpointResponse,
@@ -9,12 +11,14 @@ import type {
   GetEventResponse,
   IngestParams,
   IngestResponse,
+  ListApiKeysResponse,
   ListEndpointsResponse,
   ListEventsParams,
   ListEventsResponse,
   ReplayParams,
   ReplayResponse,
   RequeueClientOptions,
+  RevokeApiKeyResponse,
   UpdateEndpointParams,
   UpdateEndpointResponse,
 } from "./types.js";
@@ -113,6 +117,49 @@ export class Requeue {
         auth: true,
       },
     ).then((body) => body ?? { deleted: true, id: endpointId });
+  }
+
+  /** GET /v1/api-keys — list project keys (id, name, prefix — never the token or hash). */
+  listApiKeys(): Promise<ListApiKeysResponse> {
+    return this.request<ListApiKeysResponse>("/v1/api-keys", {
+      method: "GET",
+      auth: true,
+    });
+  }
+
+  /**
+   * POST /v1/api-keys — mint a key for the current project.
+   * The raw `api_key.token` is returned **once**. Store it; later `listApiKeys` omits it.
+   */
+  createApiKey(params: CreateApiKeyParams): Promise<CreateApiKeyResponse> {
+    if (!params.name?.trim()) {
+      throw new RequeueError("name is required", {
+        status: 0,
+        code: "invalid_options",
+      });
+    }
+
+    return this.request<CreateApiKeyResponse>("/v1/api-keys", {
+      method: "POST",
+      auth: true,
+      body: { name: params.name },
+    });
+  }
+
+  /**
+   * DELETE /v1/api-keys/:id — revoke a key for the current project.
+   * Core returns `{ deleted: true, id }`. An empty / 204 body is treated as that shape.
+   * The revoked token can no longer authenticate management routes.
+   */
+  revokeApiKey(id: string): Promise<RevokeApiKeyResponse> {
+    const keyId = requireId(id, "id");
+    return this.request<RevokeApiKeyResponse | undefined>(
+      `/v1/api-keys/${encodeURIComponent(keyId)}`,
+      {
+        method: "DELETE",
+        auth: true,
+      },
+    ).then((body) => body ?? { deleted: true, id: keyId });
   }
 
   /**

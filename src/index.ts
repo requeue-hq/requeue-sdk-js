@@ -12,6 +12,10 @@ export {
 } from "./verify.js";
 export type {
   ApiErrorBody,
+  ApiKey,
+  CreateApiKeyParams,
+  CreateApiKeyResponse,
+  CreatedApiKey,
   CreateEndpointParams,
   CreateEndpointResponse,
   DeleteEndpointResponse,
@@ -22,6 +26,7 @@ export type {
   GetEventResponse,
   IngestParams,
   IngestResponse,
+  ListApiKeysResponse,
   ListEndpointsResponse,
   ListEventsParams,
   ListEventsResponse,
@@ -30,6 +35,7 @@ export type {
   ReplayResponse,
   RequeueClientOptions,
   RequeueEvent,
+  RevokeApiKeyResponse,
   UpdateEndpointParams,
   UpdateEndpointResponse,
 } from "./types.js";
