@@ -82,6 +82,11 @@ export type ListEventsParams = {
     endpoint_id?: string;
     /** Page size. Core API clamps to 1–200 and defaults to 50. */
     limit?: number;
+    /**
+     * Case-insensitive search over event id, reason, source, and payload
+     * (`GET /v1/events?q=`).
+     */
+    q?: string;
 };
 
 export type ReplayParams = {
