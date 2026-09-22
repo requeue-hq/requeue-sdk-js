@@ -412,11 +412,30 @@ describe("listEvents", () => {
     );
   });
 
+  it("sends optional q search query", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(jsonResponse(200, { events: [event], count: 1 }));
+    const client = createClient(fetchMock);
+
+    await client.listEvents({ q: "ord_123" });
+
+    expect(lastCall(fetchMock).url).toBe("https://requeue.test/v1/events?q=ord_123");
+  });
+
   it("omits empty query params", async () => {
     const fetchMock = vi.fn().mockResolvedValue(jsonResponse(200, { events: [], count: 0 }));
     const client = createClient(fetchMock);
 
     await client.listEvents();
+    expect(lastCall(fetchMock).url).toBe("https://requeue.test/v1/events");
+  });
+
+  it("omits an empty q", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse(200, { events: [], count: 0 }));
+    const client = createClient(fetchMock);
+
+    await client.listEvents({ q: "" });
     expect(lastCall(fetchMock).url).toBe("https://requeue.test/v1/events");
   });
 });
