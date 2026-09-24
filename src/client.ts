@@ -15,6 +15,8 @@ import type {
   ListEndpointsResponse,
   ListEventsParams,
   ListEventsResponse,
+  BulkReplayParams,
+  BulkReplayResponse,
   ReplayParams,
   ReplayResponse,
   RequeueClientOptions,
@@ -25,6 +27,8 @@ import type {
 
 const DEFAULT_BASE_URL = "http://127.0.0.1:8787";
 const SDK_USER_AGENT = "requeue-sdk-js/0.1.0";
+/** Core `POST /v1/events/bulk-replay` accepts at most this many ids. */
+const MAX_BULK_REPLAY_IDS = 50;
 
 export class Requeue {
   readonly apiKey: string;
@@ -221,6 +225,24 @@ export class Requeue {
     );
   }
 
+  /**
+   * POST /v1/events/bulk-replay — replay 1–50 events in one call.
+   * `enqueue` defaults to true (outbox). Pass `false` for immediate sync delivery per id.
+   * Does not send `payload` or `headers`; edit-before-replay stays on `replay()`.
+   * HTTP 200 includes per-id failures in `results` (`ok: false`).
+   */
+  bulkReplay(params: BulkReplayParams): Promise<BulkReplayResponse> {
+    const body: Record<string, unknown> = {
+      ids: requireBulkIds(params.ids),
+      enqueue: params.enqueue ?? true,
+    };
+    return this.request<BulkReplayResponse>("/v1/events/bulk-replay", {
+      method: "POST",
+      auth: true,
+      body,
+    });
+  }
+
   private async request<T>(
     path: string,
     options: {
@@ -298,6 +320,31 @@ function requireId(value: string, field: string): string {
     });
   }
   return trimmed;
+}
+
+function requireBulkIds(ids: readonly string[]): string[] {
+  if (!Array.isArray(ids) || ids.length === 0) {
+    throw new RequeueError("ids is required", {
+      status: 0,
+      code: "invalid_options",
+    });
+  }
+  if (ids.length > MAX_BULK_REPLAY_IDS) {
+    throw new RequeueError(`ids must contain at most ${MAX_BULK_REPLAY_IDS} event ids`, {
+      status: 0,
+      code: "invalid_options",
+    });
+  }
+
+  return ids.map((id) => {
+    if (typeof id !== "string") {
+      throw new RequeueError("ids must be non-empty event ids", {
+        status: 0,
+        code: "invalid_options",
+      });
+    }
+    return requireId(id, "id");
+  });
 }
 
 function omitUndefined(record: Record<string, unknown>): Record<string, unknown> {

@@ -115,6 +115,45 @@ export type ListEventsResponse = { events: RequeueEvent[]; count: number };
 export type GetEventResponse = { event: RequeueEvent; replay_attempts: ReplayAttempt[] };
 export type ReplayResponse = { event: RequeueEvent; attempt?: ReplayAttempt; queued: boolean };
 
+/** `POST /v1/events/bulk-replay`. `enqueue` defaults to true (outbox) on the API. */
+export type BulkReplayParams = {
+    /**
+     * Event ids to replay. Required, 1–50 non-empty ids.
+     * Empty, missing, or more than 50 is rejected before the request.
+     */
+    ids: string[];
+    /**
+     * When true (default), mark each event `pending_replay` for the D1 outbox cron.
+     * Pass `false` for immediate sync delivery per id.
+     * Bulk replay does not accept `payload` or `headers`; use `replay()` to edit before replay.
+     */
+    enqueue?: boolean;
+};
+
+/** Successful per-id row. `attempt` is null when the event was queued. */
+export type BulkReplaySuccessResult = {
+    id: string;
+    ok: true;
+    event: RequeueEvent;
+    attempt: ReplayAttempt | null;
+    queued: boolean;
+};
+
+/** Per-id failure. The bulk call itself is still HTTP 200. */
+export type BulkReplayFailureResult = {
+    id: string;
+    ok: false;
+    error: { code: string; message: string };
+};
+
+export type BulkReplayResult = BulkReplaySuccessResult | BulkReplayFailureResult;
+
+export type BulkReplayResponse = {
+    results: BulkReplayResult[];
+    ok_count: number;
+    error_count: number;
+};
+
 /** Public API key metadata. List/get never include the raw token or hash. */
 export type ApiKey = {
   id: string;

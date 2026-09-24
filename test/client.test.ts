@@ -495,6 +495,127 @@ describe("replay", () => {
   });
 });
 
+describe("bulkReplay", () => {
+  const queuedEvent = { ...event, id: "evt_one", status: "pending_replay" as const };
+
+  it("POSTs /v1/events/bulk-replay with enqueue defaulting to true", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      jsonResponse(200, {
+        results: [
+          { id: "evt_one", ok: true, event: queuedEvent, attempt: null, queued: true },
+          { id: "evt_two", ok: true, event: { ...queuedEvent, id: "evt_two" }, attempt: null, queued: true },
+        ],
+        ok_count: 2,
+        error_count: 0,
+      }),
+    );
+    const client = createClient(fetchMock);
+
+    const result = await client.bulkReplay({ ids: [" evt_one ", "evt_two"] });
+
+    const first = result.results[0];
+    expect(result.ok_count).toBe(2);
+    if (!first || !first.ok) {
+      throw new Error("expected a successful bulk replay row");
+    }
+    expect(first.queued).toBe(true);
+    const { url, init, headers } = lastCall(fetchMock);
+    expect(url).toBe("https://requeue.test/v1/events/bulk-replay");
+    expect(init.method).toBe("POST");
+    expect(headers.get("Authorization")).toBe(`Bearer ${API_KEY}`);
+    expect(headers.get("Content-Type")).toBe("application/json");
+    expect(JSON.parse(String(init.body))).toEqual({
+      ids: ["evt_one", "evt_two"],
+      enqueue: true,
+    });
+  });
+
+  it("POSTs { enqueue: false } for immediate sync delivery", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      jsonResponse(200, {
+        results: [
+          {
+            id: "evt_123",
+            ok: true,
+            event: { ...event, status: "replayed" },
+            attempt,
+            queued: false,
+          },
+        ],
+        ok_count: 1,
+        error_count: 0,
+      }),
+    );
+    const client = createClient(fetchMock);
+
+    const result = await client.bulkReplay({ ids: ["evt_123"], enqueue: false });
+
+    const row = result.results[0];
+    if (!row || !row.ok) {
+      throw new Error("expected a successful bulk replay row");
+    }
+    expect(row.attempt?.success).toBe(true);
+    expect(row.queued).toBe(false);
+    expect(JSON.parse(String(lastCall(fetchMock).init.body))).toEqual({
+      ids: ["evt_123"],
+      enqueue: false,
+    });
+  });
+
+  it("parses a mixed ok / not_found response without throwing", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      jsonResponse(200, {
+        results: [
+          { id: "evt_one", ok: true, event: queuedEvent, attempt: null, queued: true },
+          {
+            id: "evt_missing",
+            ok: false,
+            error: { code: "not_found", message: "Event not found" },
+          },
+        ],
+        ok_count: 1,
+        error_count: 1,
+      }),
+    );
+    const client = createClient(fetchMock);
+
+    const result = await client.bulkReplay({ ids: ["evt_one", "evt_missing"] });
+
+    expect(result.ok_count).toBe(1);
+    expect(result.error_count).toBe(1);
+    expect(result.results[0]).toMatchObject({ id: "evt_one", ok: true, queued: true, attempt: null });
+    expect(result.results[1]).toEqual({
+      id: "evt_missing",
+      ok: false,
+      error: { code: "not_found", message: "Event not found" },
+    });
+  });
+
+  it("rejects empty ids before fetching", () => {
+    const fetchMock = vi.fn();
+    const client = createClient(fetchMock);
+
+    expect(() => client.bulkReplay({ ids: [] })).toThrow(RequeueError);
+    try {
+      client.bulkReplay({ ids: [] });
+    } catch (error) {
+      expect(isRequeueError(error)).toBe(true);
+      expect((error as RequeueError).code).toBe("invalid_options");
+      expect((error as RequeueError).message).toMatch(/ids is required/);
+    }
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("rejects more than 50 ids before fetching", () => {
+    const fetchMock = vi.fn();
+    const client = createClient(fetchMock);
+    const ids = Array.from({ length: 51 }, (_, index) => `evt_${index}`);
+
+    expect(() => client.bulkReplay({ ids })).toThrowError(/at most 50/);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+});
+
 describe("error handling", () => {
   it("maps { error: { code, message } } from the core API", async () => {
     const fetchMock = vi.fn().mockResolvedValue(

@@ -153,7 +153,14 @@ const replayed = await requeue.replay(event.id);
 
 // Or enqueue for the once-a-minute D1 outbox cron:
 await requeue.replay(event.id, { enqueue: true });
+
+// Replay 1–50 events. `enqueue` defaults to true (outbox); pass false for sync delivery.
+// Partial failures stay in `results` — the call still resolves on HTTP 200.
+const bulk = await requeue.bulkReplay({ ids: [event.id, "evt_other"] });
+// bulk.results, bulk.ok_count, bulk.error_count
 ```
+
+Edit-before-replay (`payload` / `headers`) stays on single `replay()`. Bulk replay does not send those fields.
 
 Event statuses: `failed`, `pending_replay`, `replayed`, `replay_failed`. Optional `endpoint_id` limits the list to one destination. Optional `q` searches event id, reason, source, and payload (case-insensitive).
 
@@ -224,6 +231,7 @@ new Requeue({
 | `listEvents({ status?, endpoint_id?, limit?, q? })` | `GET /v1/events` | Bearer |
 | `getEvent(id)` | `GET /v1/events/:id` | Bearer |
 | `replay(id, { enqueue? })` | `POST /v1/events/:id/replay` | Bearer |
+| `bulkReplay({ ids, enqueue? })` | `POST /v1/events/bulk-replay` | Bearer |
 
 `verifyReplaySignature({ secret, headers, payload, tolerance? })` is a local helper (no HTTP). See [Verify a replay signature](#verify-a-replay-signature).
 
@@ -243,7 +251,7 @@ try {
 
 | `code` | When |
 | --- | --- |
-| `invalid_options` | Missing `apiKey`, `target_url`, `name`, or id |
+| `invalid_options` | Missing `apiKey`, `target_url`, `name`, or id; empty or oversized `ids` |
 | `network_error` | `fetch` threw before an HTTP response |
 | `endpoint_gone` | Ingest after `deleteEndpoint` (HTTP 410) |
 | API codes (`unauthorized`, `not_found`, …) | Non-2xx from the worker |
