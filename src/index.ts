@@ -13,6 +13,11 @@ export {
 export type {
   ApiErrorBody,
   ApiKey,
+  BulkReplayFailureResult,
+  BulkReplayParams,
+  BulkReplayResponse,
+  BulkReplayResult,
+  BulkReplaySuccessResult,
   CreateApiKeyParams,
   CreateApiKeyResponse,
   CreatedApiKey,
