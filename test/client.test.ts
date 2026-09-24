@@ -513,8 +513,12 @@ describe("bulkReplay", () => {
 
     const result = await client.bulkReplay({ ids: [" evt_one ", "evt_two"] });
 
+    const first = result.results[0];
     expect(result.ok_count).toBe(2);
-    expect(result.results[0]?.queued).toBe(true);
+    if (!first || !first.ok) {
+      throw new Error("expected a successful bulk replay row");
+    }
+    expect(first.queued).toBe(true);
     const { url, init, headers } = lastCall(fetchMock);
     expect(url).toBe("https://requeue.test/v1/events/bulk-replay");
     expect(init.method).toBe("POST");
