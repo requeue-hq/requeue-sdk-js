@@ -17,8 +17,12 @@ import type {
   ListEventsResponse,
   BulkReplayParams,
   BulkReplayResponse,
+  BulkResolveParams,
+  BulkResolveResponse,
   ReplayParams,
   ReplayResponse,
+  ResolveParams,
+  ResolveResponse,
   RequeueClientOptions,
   RevokeApiKeyResponse,
   UpdateEndpointParams,
@@ -27,8 +31,8 @@ import type {
 
 const DEFAULT_BASE_URL = "http://127.0.0.1:8787";
 const SDK_USER_AGENT = "requeue-sdk-js/0.1.0";
-/** Core `POST /v1/events/bulk-replay` accepts at most this many ids. */
-const MAX_BULK_REPLAY_IDS = 50;
+/** Core bulk routes accept at most this many ids (`bulk-replay` and `bulk-resolve`). */
+const MAX_BULK_IDS = 50;
 
 export class Requeue {
   readonly apiKey: string;
@@ -243,6 +247,39 @@ export class Requeue {
     });
   }
 
+  /**
+   * POST /v1/events/:id/resolve — dismiss an event without delivering it.
+   * Sets status `resolved`, stores `resolve_note`, and clears outbox fields
+   * (`next_retry_at`, `delivery_payload`, `delivery_headers`).
+   * Does not POST to `target_url` and does not write a `replay_attempts` row.
+   * Already-resolved events return 200 and keep the stored note and `updated_at`.
+   */
+  resolve(id: string, params: ResolveParams = {}): Promise<ResolveResponse> {
+    const body: Record<string, unknown> = {};
+    if (params.note !== undefined) body.note = params.note;
+    return this.request<ResolveResponse>(
+      `/v1/events/${encodeURIComponent(requireId(id, "id"))}/resolve`,
+      {
+        method: "POST",
+        auth: true,
+        body: Object.keys(body).length > 0 ? body : undefined,
+      },
+    );
+  }
+
+  /**
+   * POST /v1/events/bulk-resolve — dismiss 1–50 events in one call.
+   * Does not accept a note (each newly resolved event stores `resolve_note: null`).
+   * Does not deliver to `target_url`. HTTP 200 includes per-id failures in `results` (`ok: false`).
+   */
+  bulkResolve(params: BulkResolveParams): Promise<BulkResolveResponse> {
+    return this.request<BulkResolveResponse>("/v1/events/bulk-resolve", {
+      method: "POST",
+      auth: true,
+      body: { ids: requireBulkIds(params.ids) },
+    });
+  }
+
   private async request<T>(
     path: string,
     options: {
@@ -329,8 +366,8 @@ function requireBulkIds(ids: readonly string[]): string[] {
       code: "invalid_options",
     });
   }
-  if (ids.length > MAX_BULK_REPLAY_IDS) {
-    throw new RequeueError(`ids must contain at most ${MAX_BULK_REPLAY_IDS} event ids`, {
+  if (ids.length > MAX_BULK_IDS) {
+    throw new RequeueError(`ids must contain at most ${MAX_BULK_IDS} event ids`, {
       status: 0,
       code: "invalid_options",
     });
