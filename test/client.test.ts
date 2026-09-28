@@ -39,6 +39,7 @@ const event: RequeueEvent = {
   source: "worker",
   created_at: "2026-09-04T00:00:00.000Z",
   updated_at: "2026-09-04T00:00:00.000Z",
+  resolve_note: null,
 };
 
 const attempt: ReplayAttempt = {
@@ -612,6 +613,179 @@ describe("bulkReplay", () => {
     const ids = Array.from({ length: 51 }, (_, index) => `evt_${index}`);
 
     expect(() => client.bulkReplay({ ids })).toThrowError(/at most 50/);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+});
+
+describe("resolve", () => {
+  const resolvedEvent: RequeueEvent = {
+    ...event,
+    status: "resolved",
+    resolve_note: "fixed in the orders worker",
+    updated_at: "2026-09-05T00:00:00.000Z",
+  };
+
+  it("POSTs /v1/events/:id/resolve with an optional note", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse(200, { event: resolvedEvent }));
+    const client = createClient(fetchMock);
+
+    const result = await client.resolve(" evt_123 ", { note: "fixed in the orders worker" });
+
+    expect(result.event.status).toBe("resolved");
+    expect(result.event.resolve_note).toBe("fixed in the orders worker");
+    const { url, init, headers } = lastCall(fetchMock);
+    expect(url).toBe("https://requeue.test/v1/events/evt_123/resolve");
+    expect(init.method).toBe("POST");
+    expect(headers.get("Authorization")).toBe(`Bearer ${API_KEY}`);
+    expect(headers.get("Content-Type")).toBe("application/json");
+    expect(JSON.parse(String(init.body))).toEqual({ note: "fixed in the orders worker" });
+  });
+
+  it("POSTs with no body when note is omitted", async () => {
+    const dismissed = { ...event, status: "resolved" as const, resolve_note: null };
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse(200, { event: dismissed }));
+    const client = createClient(fetchMock);
+
+    const result = await client.resolve("evt_123");
+
+    expect(result.event.status).toBe("resolved");
+    expect(result.event.resolve_note).toBeNull();
+    const { url, init, headers } = lastCall(fetchMock);
+    expect(url).toBe("https://requeue.test/v1/events/evt_123/resolve");
+    expect(init.method).toBe("POST");
+    expect(init.body).toBeUndefined();
+    expect(headers.get("Authorization")).toBe(`Bearer ${API_KEY}`);
+    expect(headers.get("Content-Type")).toBeNull();
+  });
+
+  it("returns an already-resolved event from a 200 without changing the stored note", async () => {
+    const already: RequeueEvent = {
+      ...event,
+      status: "resolved",
+      resolve_note: "original note",
+      updated_at: "2026-09-04T00:00:00.000Z",
+    };
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse(200, { event: already }));
+    const client = createClient(fetchMock);
+
+    const result = await client.resolve("evt_123", { note: "a different note" });
+
+    expect(result.event).toEqual(already);
+    expect(result.event.resolve_note).toBe("original note");
+    expect(result.event.updated_at).toBe("2026-09-04T00:00:00.000Z");
+    expect(JSON.parse(String(lastCall(fetchMock).init.body))).toEqual({ note: "a different note" });
+  });
+
+  it("rejects an empty id before fetching", () => {
+    const fetchMock = vi.fn();
+    const client = createClient(fetchMock);
+
+    expect(() => client.resolve("   ")).toThrow(RequeueError);
+    try {
+      client.resolve("");
+    } catch (error) {
+      expect(isRequeueError(error)).toBe(true);
+      expect((error as RequeueError).code).toBe("invalid_options");
+      expect((error as RequeueError).message).toMatch(/id is required/);
+    }
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+});
+
+describe("bulkResolve", () => {
+  const resolvedEvent = {
+    ...event,
+    id: "evt_one",
+    status: "resolved" as const,
+    resolve_note: null,
+  };
+
+  it("POSTs /v1/events/bulk-resolve with ids only", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      jsonResponse(200, {
+        results: [
+          { id: "evt_one", ok: true, event: resolvedEvent },
+          { id: "evt_two", ok: true, event: { ...resolvedEvent, id: "evt_two" } },
+        ],
+        ok_count: 2,
+        error_count: 0,
+      }),
+    );
+    const client = createClient(fetchMock);
+
+    const result = await client.bulkResolve({ ids: [" evt_one ", "evt_two"] });
+
+    const first = result.results[0];
+    expect(result.ok_count).toBe(2);
+    if (!first || !first.ok) {
+      throw new Error("expected a successful bulk resolve row");
+    }
+    expect(first.event.status).toBe("resolved");
+    expect(first.event.resolve_note).toBeNull();
+    const { url, init, headers } = lastCall(fetchMock);
+    expect(url).toBe("https://requeue.test/v1/events/bulk-resolve");
+    expect(init.method).toBe("POST");
+    expect(headers.get("Authorization")).toBe(`Bearer ${API_KEY}`);
+    expect(headers.get("Content-Type")).toBe("application/json");
+    expect(JSON.parse(String(init.body))).toEqual({
+      ids: ["evt_one", "evt_two"],
+    });
+  });
+
+  it("parses a mixed ok / not_found response without throwing", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      jsonResponse(200, {
+        results: [
+          { id: "evt_one", ok: true, event: resolvedEvent },
+          {
+            id: "evt_missing",
+            ok: false,
+            error: { code: "not_found", message: "Event not found" },
+          },
+        ],
+        ok_count: 1,
+        error_count: 1,
+      }),
+    );
+    const client = createClient(fetchMock);
+
+    const result = await client.bulkResolve({ ids: ["evt_one", "evt_missing"] });
+
+    expect(result.ok_count).toBe(1);
+    expect(result.error_count).toBe(1);
+    expect(result.results[0]).toMatchObject({
+      id: "evt_one",
+      ok: true,
+      event: { status: "resolved", resolve_note: null },
+    });
+    expect(result.results[1]).toEqual({
+      id: "evt_missing",
+      ok: false,
+      error: { code: "not_found", message: "Event not found" },
+    });
+  });
+
+  it("rejects empty ids before fetching", () => {
+    const fetchMock = vi.fn();
+    const client = createClient(fetchMock);
+
+    expect(() => client.bulkResolve({ ids: [] })).toThrow(RequeueError);
+    try {
+      client.bulkResolve({ ids: [] });
+    } catch (error) {
+      expect(isRequeueError(error)).toBe(true);
+      expect((error as RequeueError).code).toBe("invalid_options");
+      expect((error as RequeueError).message).toMatch(/ids is required/);
+    }
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("rejects more than 50 ids before fetching", () => {
+    const fetchMock = vi.fn();
+    const client = createClient(fetchMock);
+    const ids = Array.from({ length: 51 }, (_, index) => `evt_${index}`);
+
+    expect(() => client.bulkResolve({ ids })).toThrowError(/at most 50/);
     expect(fetchMock).not.toHaveBeenCalled();
   });
 });

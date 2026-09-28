@@ -133,6 +133,16 @@ curl -sS http://127.0.0.1:8787/v1/events/evt_REPLACE_ME \
 
 curl -sS -X POST http://127.0.0.1:8787/v1/events/evt_REPLACE_ME/replay \
   -H "Authorization: Bearer rq_demo_local_dev_only_do_not_use_in_prod"
+
+curl -sS -X POST http://127.0.0.1:8787/v1/events/evt_REPLACE_ME/resolve \
+  -H "Authorization: Bearer rq_demo_local_dev_only_do_not_use_in_prod" \
+  -H "Content-Type: application/json" \
+  -d '{"note":"fixed in the orders worker"}'
+
+curl -sS -X POST http://127.0.0.1:8787/v1/events/bulk-resolve \
+  -H "Authorization: Bearer rq_demo_local_dev_only_do_not_use_in_prod" \
+  -H "Content-Type: application/json" \
+  -d '{"ids":["evt_REPLACE_ME","evt_REPLACE_ME_TOO"]}'
 ```
 
 ```ts
@@ -158,11 +168,24 @@ await requeue.replay(event.id, { enqueue: true });
 // Partial failures stay in `results` — the call still resolves on HTTP 200.
 const bulk = await requeue.bulkReplay({ ids: [event.id, "evt_other"] });
 // bulk.results, bulk.ok_count, bulk.error_count
+
+// Dismiss without delivery. Optional note (max 500 characters) is stored as resolve_note.
+const resolved = await requeue.resolve(event.id, { note: "fixed in the orders worker" });
+// resolved.event.status === "resolved"
+
+// Omit the note to dismiss with resolve_note null.
+await requeue.resolve(event.id);
+
+// Dismiss 1–50 events. Bulk resolve has no note. Partial failures stay in results.
+const dismissed = await requeue.bulkResolve({ ids: [event.id, "evt_other"] });
+// dismissed.results, dismissed.ok_count, dismissed.error_count
 ```
 
 Edit-before-replay (`payload` / `headers`) stays on single `replay()`. Bulk replay does not send those fields.
 
-Event statuses: `failed`, `pending_replay`, `replayed`, `replay_failed`. Optional `endpoint_id` limits the list to one destination. Optional `q` searches event id, reason, source, and payload (case-insensitive).
+`resolve` and `bulkResolve` dismiss an event (`status: "resolved"`) without posting to `target_url` and without writing a `replay_attempts` row. The stored payload stays. Outbox fields (`next_retry_at`, `delivery_payload`, `delivery_headers`) are cleared so a queued replay is not delivered. An event that is already `resolved` returns 200 and keeps its `resolve_note` and `updated_at`. `note` is single-event only. Bulk resolve does not take a note; each newly resolved event stores `resolve_note: null`.
+
+Event statuses: `failed`, `pending_replay`, `replayed`, `replay_failed`, `resolved`. Optional `endpoint_id` limits the list to one destination. Optional `q` searches event id, reason, source, and payload (case-insensitive). `GET /v1/events?status=resolved` lists dismissed events.
 
 ### Verify a replay signature
 
@@ -232,6 +255,10 @@ new Requeue({
 | `getEvent(id)` | `GET /v1/events/:id` | Bearer |
 | `replay(id, { enqueue? })` | `POST /v1/events/:id/replay` | Bearer |
 | `bulkReplay({ ids, enqueue? })` | `POST /v1/events/bulk-replay` | Bearer |
+| `resolve(id, { note? })` | `POST /v1/events/:id/resolve` | Bearer |
+| `bulkResolve({ ids })` | `POST /v1/events/bulk-resolve` | Bearer |
+
+`resolve` dismisses one event without delivery. Optional `note` (max 500 characters) is stored as `resolve_note`. `bulkResolve` dismisses 1–50 ids and does not accept a note. Both leave an already-resolved event unchanged (HTTP 200). Bulk per-id errors stay in `results`.
 
 `verifyReplaySignature({ secret, headers, payload, tolerance? })` is a local helper (no HTTP). See [Verify a replay signature](#verify-a-replay-signature).
 

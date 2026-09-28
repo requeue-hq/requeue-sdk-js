@@ -1,5 +1,5 @@
 /** Event statuses returned by the Requeue core API. */
-export type EventStatus = "failed" | "pending_replay" | "replayed" | "replay_failed";
+export type EventStatus = "failed" | "pending_replay" | "replayed" | "replay_failed" | "resolved";
 
 /** Fetch-compatible function, injectable for tests or custom runtimes. */
 export type FetchLike = typeof fetch;
@@ -64,6 +64,11 @@ export type RequeueEvent = {
     source: string | null;
     created_at: string;
     updated_at: string;
+    /**
+     * Operator note from `POST /v1/events/:id/resolve`.
+     * `null` until the event is dismissed with a note. Core always serializes this field.
+     */
+    resolve_note: string | null;
 };
 
 export type ReplayAttempt = {
@@ -114,6 +119,51 @@ export type IngestResponse = { event: RequeueEvent };
 export type ListEventsResponse = { events: RequeueEvent[]; count: number };
 export type GetEventResponse = { event: RequeueEvent; replay_attempts: ReplayAttempt[] };
 export type ReplayResponse = { event: RequeueEvent; attempt?: ReplayAttempt; queued: boolean };
+
+/**
+ * `POST /v1/events/:id/resolve`. Dismisses the event (`resolved`) without delivery.
+ * Omitted `note` stores `resolve_note: null`. Already-resolved events ignore a new note.
+ */
+export type ResolveParams = {
+    /**
+     * Optional operator note. The API stores at most 500 characters on `resolve_note`.
+     * Blank or omitted stores `null`.
+     */
+    note?: string;
+};
+
+export type ResolveResponse = { event: RequeueEvent };
+
+/** `POST /v1/events/bulk-resolve`. No `note` — each newly resolved event stores `resolve_note: null`. */
+export type BulkResolveParams = {
+    /**
+     * Event ids to dismiss. Required, 1–50 non-empty ids.
+     * Empty, missing, or more than 50 is rejected before the request.
+     */
+    ids: string[];
+};
+
+/** Successful per-id dismiss. No replay attempt is written. */
+export type BulkResolveSuccessResult = {
+    id: string;
+    ok: true;
+    event: RequeueEvent;
+};
+
+/** Per-id failure. The bulk call itself is still HTTP 200. */
+export type BulkResolveFailureResult = {
+    id: string;
+    ok: false;
+    error: { code: string; message: string };
+};
+
+export type BulkResolveResult = BulkResolveSuccessResult | BulkResolveFailureResult;
+
+export type BulkResolveResponse = {
+    results: BulkResolveResult[];
+    ok_count: number;
+    error_count: number;
+};
 
 /** `POST /v1/events/bulk-replay`. `enqueue` defaults to true (outbox) on the API. */
 export type BulkReplayParams = {
