@@ -24,7 +24,9 @@ const endpoint: Endpoint = {
   endpoint_key: "epk_abc",
   target_url: "https://httpbin.org/post",
   ingest_path: "/v1/ingest/epk_abc",
+  relay_path: "/v1/relay/epk_abc",
   has_secret: true,
+  alert_url: null,
   created_at: "2026-09-04T00:00:00.000Z",
 };
 
@@ -144,6 +146,94 @@ describe("createEndpoint", () => {
     const client = createClient(vi.fn());
     expect(() => client.createEndpoint({ target_url: "" })).toThrowError(/target_url/);
   });
+
+  it("sends alert_url and returns relay_path plus the stored URL", async () => {
+    const created = {
+      ...endpoint,
+      alert_url: "https://example.com/hooks/requeue-alerts",
+    };
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse(201, { endpoint: created }));
+    const client = createClient(fetchMock);
+
+    const result = await client.createEndpoint({
+      name: "Orders worker",
+      target_url: "https://httpbin.org/post",
+      secret: "optional-hmac-secret",
+      alert_url: "https://example.com/hooks/requeue-alerts",
+    });
+
+    expect(result.endpoint.alert_url).toBe("https://example.com/hooks/requeue-alerts");
+    expect(result.endpoint.relay_path).toBe("/v1/relay/epk_abc");
+    expect(result.endpoint.ingest_path).toBe("/v1/ingest/epk_abc");
+    expect(JSON.parse(String(lastCall(fetchMock).init.body))).toEqual({
+      name: "Orders worker",
+      target_url: "https://httpbin.org/post",
+      secret: "optional-hmac-secret",
+      alert_url: "https://example.com/hooks/requeue-alerts",
+    });
+  });
+
+  it("omits alert_url when it is not provided", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse(201, { endpoint }));
+    const client = createClient(fetchMock);
+
+    const result = await client.createEndpoint({
+      target_url: "https://httpbin.org/post",
+    });
+
+    expect(result.endpoint.alert_url).toBeNull();
+    expect(JSON.parse(String(lastCall(fetchMock).init.body))).toEqual({
+      target_url: "https://httpbin.org/post",
+    });
+  });
+
+  it("sends alert_url null to store null", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse(201, { endpoint }));
+    const client = createClient(fetchMock);
+
+    await client.createEndpoint({ target_url: "https://httpbin.org/post", alert_url: null });
+
+    expect(JSON.parse(String(lastCall(fetchMock).init.body))).toEqual({
+      target_url: "https://httpbin.org/post",
+      alert_url: null,
+    });
+  });
+
+  it("sends an empty alert_url to store null", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse(201, { endpoint }));
+    const client = createClient(fetchMock);
+
+    await client.createEndpoint({ target_url: "https://httpbin.org/post", alert_url: "" });
+
+    expect(JSON.parse(String(lastCall(fetchMock).init.body))).toEqual({
+      target_url: "https://httpbin.org/post",
+      alert_url: "",
+    });
+  });
+
+  it("surfaces invalid_body when alert_url is not https", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      jsonResponse(400, {
+        error: { code: "invalid_body", message: "alert_url must be an absolute https URL" },
+      }),
+    );
+    const client = createClient(fetchMock);
+
+    await expect(
+      client.createEndpoint({
+        target_url: "https://httpbin.org/post",
+        alert_url: "http://alerts.example/hooks",
+      }),
+    ).rejects.toMatchObject({
+      status: 400,
+      code: "invalid_body",
+      message: "alert_url must be an absolute https URL",
+    });
+    expect(JSON.parse(String(lastCall(fetchMock).init.body))).toEqual({
+      target_url: "https://httpbin.org/post",
+      alert_url: "http://alerts.example/hooks",
+    });
+  });
 });
 
 describe("listEndpoints", () => {
@@ -157,6 +247,8 @@ describe("listEndpoints", () => {
 
     expect(result.count).toBe(1);
     expect(result.endpoints[0]?.endpoint_key).toBe("epk_abc");
+    expect(result.endpoints[0]?.relay_path).toBe("/v1/relay/epk_abc");
+    expect(result.endpoints[0]?.alert_url).toBeNull();
     const { url, init, headers } = lastCall(fetchMock);
     expect(url).toBe("https://requeue.test/v1/endpoints");
     expect(init.method).toBe("GET");
@@ -245,6 +337,65 @@ describe("updateEndpoint", () => {
     const client = createClient(vi.fn());
     expect(() => client.updateEndpoint("   ", { name: "Nope" })).toThrowError(/id is required/);
   });
+
+  it("sends alert_url to change the notification URL", async () => {
+    const updated = {
+      ...endpoint,
+      alert_url: "https://example.com/hooks/requeue-alerts",
+    };
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse(200, { endpoint: updated }));
+    const client = createClient(fetchMock);
+
+    const result = await client.updateEndpoint("ep_123", {
+      alert_url: "https://example.com/hooks/requeue-alerts",
+    });
+
+    expect(result.endpoint.alert_url).toBe("https://example.com/hooks/requeue-alerts");
+    expect(result.endpoint.endpoint_key).toBe("epk_abc");
+    expect(result.endpoint.relay_path).toBe("/v1/relay/epk_abc");
+    expect(JSON.parse(String(lastCall(fetchMock).init.body))).toEqual({
+      alert_url: "https://example.com/hooks/requeue-alerts",
+    });
+  });
+
+  it("sends alert_url: null to clear the notification URL", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse(200, { endpoint }));
+    const client = createClient(fetchMock);
+
+    const result = await client.updateEndpoint("ep_123", { alert_url: null });
+
+    expect(result.endpoint.alert_url).toBeNull();
+    expect(result.endpoint.endpoint_key).toBe("epk_abc");
+    expect(JSON.parse(String(lastCall(fetchMock).init.body))).toEqual({ alert_url: null });
+  });
+
+  it("sends alert_url: \"\" to clear the notification URL", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse(200, { endpoint }));
+    const client = createClient(fetchMock);
+
+    await client.updateEndpoint("ep_123", { alert_url: "" });
+
+    expect(JSON.parse(String(lastCall(fetchMock).init.body))).toEqual({ alert_url: "" });
+  });
+
+  it("surfaces invalid_body when a patched alert_url is not https", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      jsonResponse(400, {
+        error: { code: "invalid_body", message: "alert_url must be an absolute https URL" },
+      }),
+    );
+    const client = createClient(fetchMock);
+
+    await expect(
+      client.updateEndpoint("ep_123", { alert_url: "/hooks/requeue" }),
+    ).rejects.toMatchObject({
+      status: 400,
+      code: "invalid_body",
+    });
+    expect(JSON.parse(String(lastCall(fetchMock).init.body))).toEqual({
+      alert_url: "/hooks/requeue",
+    });
+  });
 });
 
 describe("deleteEndpoint", () => {
@@ -276,6 +427,53 @@ describe("deleteEndpoint", () => {
   it("rejects a missing id", () => {
     const client = createClient(vi.fn());
     expect(() => client.deleteEndpoint("   ")).toThrowError(/id is required/);
+  });
+});
+
+describe("relayUrl", () => {
+  it("builds the absolute relay URL from baseUrl and does not fetch", () => {
+    const fetchMock = vi.fn();
+    const client = createClient(fetchMock);
+
+    expect(client.relayUrl("epk_abc")).toBe("https://requeue.test/v1/relay/epk_abc");
+    expect(client.relayUrl("  epk_abc  ")).toBe("https://requeue.test/v1/relay/epk_abc");
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("uses the hosted base URL", () => {
+    const client = new Requeue({
+      apiKey: API_KEY,
+      baseUrl: "https://api.getrequeue.com/",
+    });
+
+    expect(client.relayUrl("epk_abc")).toBe("https://api.getrequeue.com/v1/relay/epk_abc");
+  });
+
+  it("uses the default local base URL", () => {
+    const client = new Requeue({ apiKey: API_KEY });
+
+    expect(client.relayUrl("epk_abc")).toBe("http://127.0.0.1:8787/v1/relay/epk_abc");
+  });
+
+  it("encodes the endpoint key as a single path segment", () => {
+    const client = createClient(vi.fn());
+
+    expect(client.relayUrl("epk a/b")).toBe("https://requeue.test/v1/relay/epk%20a%2Fb");
+  });
+
+  it("rejects a missing endpoint key", () => {
+    const fetchMock = vi.fn();
+    const client = createClient(fetchMock);
+
+    expect(() => client.relayUrl("   ")).toThrow(RequeueError);
+    try {
+      client.relayUrl("");
+    } catch (error) {
+      expect(isRequeueError(error)).toBe(true);
+      expect((error as RequeueError).code).toBe("invalid_options");
+      expect((error as RequeueError).message).toMatch(/endpointKey is required/);
+    }
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 });
 

@@ -45,7 +45,8 @@ curl -sS http://127.0.0.1:8787/v1/endpoints \
   -d '{
     "name": "Orders worker",
     "target_url": "https://httpbin.org/post",
-    "secret": "optional-hmac-secret"
+    "secret": "optional-hmac-secret",
+    "alert_url": "https://example.com/hooks/requeue-alerts"
   }'
 ```
 
@@ -54,10 +55,17 @@ const { endpoint } = await requeue.createEndpoint({
   name: "Orders worker",
   target_url: "https://httpbin.org/post",
   secret: "optional-hmac-secret",
+  alert_url: "https://example.com/hooks/requeue-alerts",
 });
 
-// Use endpoint.endpoint_key for ingest.
+// endpoint.endpoint_key — ingest
+// endpoint.relay_path — "/v1/relay/epk_…"
+// endpoint.alert_url — the notification URL, or null
 ```
+
+`secret` and `alert_url` are optional. Drop `alert_url` if you do not want a notification. When set, `alert_url` must be an absolute `https://` URL. `http://` and relative URLs are `400` with `error.code: "invalid_body"`. `""` or `null` stores null.
+
+After ingest or a failed relay stores an event, Requeue POSTs one small JSON body to that URL (`type: "event.ingested"`, plus event `id`, `endpoint_id`, `status`, `reason`, `source`, and `created_at`). The payload and headers stay in the inbox. A failed alert does not fail ingest or relay.
 
 ### List, update, and retire endpoints
 
@@ -71,15 +79,18 @@ const { endpoint: updated } = await requeue.updateEndpoint(endpoint.id, {
   target_url: "https://httpbin.org/post",
 });
 
-// secret: "" or null clears HMAC. endpoint_key / ingest_path do not rotate.
+// secret: "" or null clears HMAC. endpoint_key / ingest_path / relay_path do not rotate.
 await requeue.updateEndpoint(endpoint.id, { secret: null });
+
+// alert_url: "" or null clears the notification URL. Omit the field to leave it.
+await requeue.updateEndpoint(endpoint.id, { alert_url: null });
 
 const { deleted, id } = await requeue.deleteEndpoint(endpoint.id);
 ```
 
-`GET /v1/endpoints` is project-scoped. Responses include `endpoint_key` and `has_secret`, never the HMAC `secret`.
+`GET /v1/endpoints` is project-scoped. Responses include `endpoint_key`, `ingest_path`, `relay_path`, `has_secret`, and `alert_url` (or null). They never include the HMAC `secret`.
 
-`updateEndpoint` is a partial `PATCH`. Omitted fields stay as-is. `deleteEndpoint` is a soft-delete (`deleted_at`); core returns `{ deleted: true, id }`. List/get hide the row. Later ingest for that key returns `410` with `error.code: "endpoint_gone"`. Historical events stay.
+`updateEndpoint` is a partial `PATCH`. Omitted fields stay as-is. `alert_url: ""` or `alert_url: null` clears the notification URL the same way `secret` clears HMAC. `deleteEndpoint` is a soft-delete (`deleted_at`); core returns `{ deleted: true, id }`. List/get hide the row. Later ingest and relay for that key return `410` with `error.code: "endpoint_gone"`. A deleted endpoint does not alert. Historical events stay.
 
 ### Manage API keys
 
@@ -118,6 +129,22 @@ const { event } = await requeue.ingest(endpoint.endpoint_key, {
 ```
 
 Ingest does **not** send the management API key. Replay later POSTs the stored `payload` (not the ingest envelope) to `target_url`.
+
+### Relay a provider webhook
+
+Stripe, Clerk, and similar providers can POST straight to `/v1/relay/:endpointKey`. Requeue forwards the raw body to `target_url` and writes the inbox only when that call does not return 2xx. `relayUrl` builds that URL from this client's `baseUrl`. It does not send the request.
+
+```ts
+const url = requeue.relayUrl(endpoint.endpoint_key);
+// Local:  http://127.0.0.1:8787/v1/relay/epk_…
+// Hosted: https://api.getrequeue.com/v1/relay/epk_…
+
+endpoint.relay_path; // "/v1/relay/epk_…" — same path, from create / list / get
+```
+
+No Bearer token. The endpoint key in the path is the capability token, same as ingest. A 2xx from the app is passed through and not stored. Anything else is stored as `failed` with `source: "relay"`, and the provider gets `200` `{ "captured": true, "event": { "id", "status", "reason" } }` so it stops retrying. `alert_url`, when set, runs on that captured failure and does not run on a 2xx pass-through. Soft-delete returns `410` with `error.code: "endpoint_gone"`.
+
+Hosted base is `https://api.getrequeue.com`.
 
 ### List, fetch, and replay
 
@@ -242,11 +269,12 @@ new Requeue({
 
 | Method | HTTP | Auth |
 | --- | --- | --- |
-| `createEndpoint({ name?, target_url, secret? })` | `POST /v1/endpoints` | Bearer |
+| `createEndpoint({ name?, target_url, secret?, alert_url? })` | `POST /v1/endpoints` | Bearer |
 | `listEndpoints()` | `GET /v1/endpoints` | Bearer |
 | `getEndpoint(id)` | `GET /v1/endpoints/:id` | Bearer |
-| `updateEndpoint(id, { name?, target_url?, secret? })` | `PATCH /v1/endpoints/:id` | Bearer |
+| `updateEndpoint(id, { name?, target_url?, secret?, alert_url? })` | `PATCH /v1/endpoints/:id` | Bearer |
 | `deleteEndpoint(id)` | `DELETE /v1/endpoints/:id` | Bearer |
+| `relayUrl(endpointKey)` | local URL for `POST /v1/relay/:endpointKey` | none |
 | `listApiKeys()` | `GET /v1/api-keys` | Bearer |
 | `createApiKey({ name })` | `POST /v1/api-keys` | Bearer |
 | `revokeApiKey(id)` | `DELETE /v1/api-keys/:id` | Bearer |
@@ -259,6 +287,8 @@ new Requeue({
 | `bulkResolve({ ids })` | `POST /v1/events/bulk-resolve` | Bearer |
 
 `resolve` dismisses one event without delivery. Optional `note` (max 500 characters) is stored as `resolve_note`. `bulkResolve` dismisses 1–50 ids and does not accept a note. Both leave an already-resolved event unchanged (HTTP 200). Bulk per-id errors stay in `results`.
+
+`relayUrl(endpointKey)` is a local helper (no HTTP). It returns `${baseUrl}/v1/relay/${endpointKey}`. Create, list, and get also return that path as `relay_path`. See [Relay a provider webhook](#relay-a-provider-webhook).
 
 `verifyReplaySignature({ secret, headers, payload, tolerance? })` is a local helper (no HTTP). See [Verify a replay signature](#verify-a-replay-signature).
 
@@ -278,9 +308,10 @@ try {
 
 | `code` | When |
 | --- | --- |
-| `invalid_options` | Missing `apiKey`, `target_url`, `name`, or id; empty or oversized `ids` |
+| `invalid_options` | Missing `apiKey`, `target_url`, `name`, id, or `endpointKey`; empty or oversized `ids` |
 | `network_error` | `fetch` threw before an HTTP response |
-| `endpoint_gone` | Ingest after `deleteEndpoint` (HTTP 410) |
+| `invalid_body` | `alert_url` is not an absolute `https://` URL (HTTP 400) |
+| `endpoint_gone` | Ingest or relay after `deleteEndpoint` (HTTP 410) |
 | API codes (`unauthorized`, `not_found`, …) | Non-2xx from the worker |
 
 ## Scripts
