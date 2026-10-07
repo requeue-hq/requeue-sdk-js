@@ -53,7 +53,10 @@ export class Requeue {
     this.fetchImpl = options.fetch ?? globalThis.fetch.bind(globalThis);
   }
 
-  /** POST /v1/endpoints — create a replay destination. */
+  /**
+   * POST /v1/endpoints — create a replay destination.
+   * Optional `alert_url` must be an absolute `https://` URL. Omit, `""`, or `null` stores null.
+   */
   createEndpoint(params: CreateEndpointParams): Promise<CreateEndpointResponse> {
     if (!params.target_url?.trim()) {
       throw new RequeueError("target_url is required", {
@@ -69,6 +72,7 @@ export class Requeue {
         name: params.name,
         target_url: params.target_url,
         secret: params.secret,
+        alert_url: params.alert_url,
       },
     });
   }
@@ -93,8 +97,9 @@ export class Requeue {
   }
 
   /**
-   * PATCH /v1/endpoints/:id — partial update of name, target_url, and/or secret.
-   * `secret: ""` or `secret: null` clears HMAC. `endpoint_key` / ingest path stay put.
+   * PATCH /v1/endpoints/:id — partial update of name, target_url, secret, and/or alert_url.
+   * `secret: ""` or `secret: null` clears HMAC. `alert_url: ""` or `alert_url: null` clears the
+   * notification URL. Omitted fields stay as-is. `endpoint_key`, `ingest_path`, and `relay_path` stay put.
    */
   updateEndpoint(id: string, params: UpdateEndpointParams = {}): Promise<UpdateEndpointResponse> {
     return this.request<UpdateEndpointResponse>(
@@ -106,6 +111,7 @@ export class Requeue {
           name: params.name,
           target_url: params.target_url,
           secret: params.secret,
+          alert_url: params.alert_url,
         },
       },
     );
@@ -114,7 +120,7 @@ export class Requeue {
   /**
    * DELETE /v1/endpoints/:id — soft-delete (`deleted_at`).
    * Core returns `{ deleted: true, id }`. An empty / 204 body is treated as that shape.
-   * List/get omit the row. Later ingest for the old key returns `410` / `endpoint_gone`.
+   * List/get omit the row. Later ingest or relay for the old key returns `410` / `endpoint_gone`.
    */
   deleteEndpoint(id: string): Promise<DeleteEndpointResponse> {
     const endpointId = requireId(id, "id");
@@ -125,6 +131,18 @@ export class Requeue {
         auth: true,
       },
     ).then((body) => body ?? { deleted: true, id: endpointId });
+  }
+
+  /**
+   * Absolute URL for `POST /v1/relay/:endpointKey`.
+   * Providers (Stripe, Clerk, and others) POST here. Requeue forwards the raw body to
+   * `target_url` and stores a failure only when the app does not return 2xx.
+   * Built from this client's `baseUrl` and the endpoint key. Does not send a request.
+   * Core also returns the path as `endpoint.relay_path`.
+   */
+  relayUrl(endpointKey: string): string {
+    const key = requireId(endpointKey, "endpointKey");
+    return new URL(`/v1/relay/${encodeURIComponent(key)}`, `${this.baseUrl}/`).href;
   }
 
   /** GET /v1/api-keys — list project keys (id, name, prefix — never the token or hash). */

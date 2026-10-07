@@ -23,14 +23,28 @@ export type CreateEndpointParams = {
     target_url: string;
     /** Optional HMAC secret used to sign replay deliveries. */
     secret?: string;
+    /**
+     * Optional absolute `https://` URL notified when ingest or a failed relay stores an event.
+     * Omit, `""`, or `null` stores null. `http://` and relative URLs are `400` `invalid_body`.
+     * An alert failure never fails the ingest or relay response.
+     */
+    alert_url?: string | null;
 };
 
-/** Partial PATCH body. Omitted fields stay as-is. `secret: ""` or `null` clears HMAC. */
+/**
+ * Partial PATCH body. Omitted fields stay as-is.
+ * `secret: ""` or `null` clears HMAC. `alert_url: ""` or `null` clears the notification URL.
+ */
 export type UpdateEndpointParams = {
     name?: string;
     target_url?: string;
     /** New HMAC secret, or `""` / `null` to clear it. */
     secret?: string | null;
+    /**
+     * New absolute `https://` alert URL, or `""` / `null` to clear it.
+     * Omit to leave the stored URL unchanged. Non-https values are `400` `invalid_body`.
+     */
+    alert_url?: string | null;
 };
 
 export type Endpoint = {
@@ -40,7 +54,17 @@ export type Endpoint = {
     endpoint_key: string;
     target_url: string;
     ingest_path: string;
+    /**
+     * Path providers POST to (`/v1/relay/<endpoint_key>`).
+     * Core always serializes this field. Use `Requeue.relayUrl` for the absolute URL.
+     */
+    relay_path: string;
     has_secret: boolean;
+    /**
+     * Absolute `https://` URL notified after a stored failure, or `null` when unset.
+     * Core always serializes this field.
+     */
+    alert_url: string | null;
     created_at: string;
 };
 
